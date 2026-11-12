@@ -1,0 +1,8 @@
+.env
+.env.*
+!.env.example
+server/data/
+server/models/
+.DS_Store
+temp/
+

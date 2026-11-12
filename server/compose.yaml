@@ -1,0 +1,67 @@
+name: distilled-experience
+
+services:
+  init-storage:
+    image: ghcr.io/vectorize-io/hindsight:1.2.1
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        chown 1000:1000 /data /models
+        chmod 700 /data
+    volumes:
+      - ./data:/data
+      - ./models:/models
+    restart: "no"
+
+  hindsight:
+    image: ghcr.io/vectorize-io/hindsight:1.2.1
+    restart: unless-stopped
+    depends_on:
+      init-storage:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:${API_PORT:-8888}:8888"
+      - "127.0.0.1:${UI_PORT:-9999}:9999"
+    volumes:
+      - ./data:/home/hindsight/.pg0
+      - ./models:/hf-cache
+    environment:
+      # No DATABASE_URL: start the embedded PostgreSQL with pgvector (pg0).
+      HINDSIGHT_API_WORKER_ID: distilled-experience
+      HINDSIGHT_API_LLM_PROVIDER: ${LLM_PROVIDER:-openrouter}
+      HINDSIGHT_API_LLM_MODEL: ${LLM_MODEL:-minimax/minimax-m3.1-flash}
+      HINDSIGHT_API_LLM_API_KEY: ${LLM_API_KEY:?Set LLM_API_KEY in .env}
+      HINDSIGHT_API_LLM_BASE_URL: ${LLM_BASE_URL:-https://openrouter.ai/api/v1}
+      HINDSIGHT_API_LLM_REASONING_EFFORT: ${LLM_REASONING_EFFORT:-high}
+      HINDSIGHT_API_LLM_STRICT_SCHEMA: "true"
+      # JSON merged into every LLM request. Hindsight parses it with json.loads, so an
+      # empty value would stop startup; "null" sends nothing. See .env.example.
+      HINDSIGHT_API_LLM_EXTRA_BODY: ${LLM_EXTRA_BODY:-null}
+      # Ollama only: context window for the model; empty keeps the Ollama default.
+      HINDSIGHT_API_LLM_OLLAMA_NUM_CTX: ${OLLAMA_NUM_CTX:-}
+      HINDSIGHT_API_LLM_OUTPUT_LANGUAGE: ${MEMORY_LANGUAGE:-English}
+      HINDSIGHT_API_LLM_MAX_CONCURRENT: "2"
+      HINDSIGHT_API_LLM_TIMEOUT: "180"
+      # Startup sends one test call to the LLM and logs a warning if it fails;
+      # it never blocks startup. Look for it in `docker compose logs hindsight`.
+      HINDSIGHT_API_SKIP_LLM_VERIFICATION: "false"
+      HINDSIGHT_API_EMBEDDINGS_LOCAL_MODEL: intfloat/multilingual-e5-small
+      HINDSIGHT_API_EMBEDDINGS_QUERY_PREFIX: "query: "
+      HINDSIGHT_API_EMBEDDINGS_PASSAGE_PREFIX: "passage: "
+      HINDSIGHT_API_RERANKER_LOCAL_MODEL: ${RERANKER_MODEL:-hindsight-ai/hs-rerank-1}
+      HF_HOME: /hf-cache
+      HINDSIGHT_API_MODEL_INIT_TIMEOUT: "1200"
+      HINDSIGHT_API_STARTUP_WAIT_SECONDS: "1260"
+    extra_hosts:
+      # Defines host.docker.internal on Linux, where Docker does not add it. A host
+      # LLM must listen beyond 127.0.0.1 there to be reachable; see .env.example.
+      - "host.docker.internal:host-gateway"
+    shm_size: 1gb
+    stop_grace_period: 75s
+    healthcheck:
+      test: ["CMD", "python3", "-m", "hindsight_api.http_probe", "http://127.0.0.1:8888/health", "5"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 1200s

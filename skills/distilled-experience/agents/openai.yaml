@@ -1,0 +1,6 @@
+interface:
+  display_name: "Distilled Experience"
+  short_description: "Automatically reuse experience and learn from tasks"
+  default_prompt: "Use $distilled-experience throughout this task to apply relevant experience and save verified lessons without waiting for reminders."
+policy:
+  allow_implicit_invocation: true
